@@ -6,11 +6,13 @@ from django.contrib.admin.templatetags.admin_static import static
 from django.contrib.auth import get_permission_codename
 from django.contrib.sites.models import Site
 from django.core.urlresolvers import NoReverseMatch, reverse_lazy
-from django.forms.widgets import Select, MultiWidget, TextInput
+from django.forms.widgets import Select, MultiWidget, TextInput, Widget
+from django.template.loader import render_to_string
 from django.utils.encoding import force_text
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext as _
 
+from cms.utils import cms_static_url
 from cms.utils.urlutils import admin_reverse
 from cms.forms.utils import get_site_choices, get_page_choices
 from cms.models import Page, PageUser
@@ -164,6 +166,39 @@ class PageSmartLinkWidget(TextInput):
 
         output.append(super(PageSmartLinkWidget, self).render(name, value, attrs))
         return mark_safe(u''.join(output))
+
+
+class PluginEditor(Widget):
+    def __init__(self, attrs=None):
+        if attrs is not None:
+            self.attrs = attrs.copy()
+        else:
+            self.attrs = {}
+
+    class Media:
+        js = [cms_static_url(path) for path in (
+            'cms_patch/js/libs/jquery.ui.core.js',
+            'cms_patch/js/libs/jquery.ui.sortable.js',
+            'cms_patch/js/plugin_editor.js',
+        )]
+        css = {
+            'all': [cms_static_url(path) for path in (
+                'cms_patch/css/plugin_editor.css',
+            )]
+        }
+
+    def render(self, name, value, attrs=None):
+
+        context = {
+            'plugin_list': self.attrs['list'],
+            'installed_plugins': self.attrs['installed'],
+            'copy_languages': self.attrs['copy_languages'],
+            'language': self.attrs['language'],
+            'show_copy': self.attrs['show_copy'],
+            'placeholder': self.attrs['placeholder'],
+        }
+        return mark_safe(render_to_string(
+            'admin/cms/page/widgets/plugin_editor.html', context))
 
 
 class UserSelectAdminWidget(Select):

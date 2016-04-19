@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # TODO: this is just stuff from utils.py - should be splitted / moved
+import os
 from django.conf import settings
 from django.core.files.storage import get_storage_class
 from django.utils.functional import LazyObject
@@ -81,3 +82,12 @@ class ConfiguredStorage(LazyObject):
         self._wrapped = get_storage_class(getattr(settings, 'STATICFILES_STORAGE', default_storage))()
 
 configured_storage = ConfiguredStorage()
+
+
+def cms_static_url(path):
+    '''
+    Helper that prefixes a URL with STATIC_URL and cms
+    '''
+    if not path:
+        return ''
+    return configured_storage.url(os.path.join('cms', path))
