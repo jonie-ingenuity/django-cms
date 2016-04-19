@@ -25,6 +25,7 @@ except ImportError:
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist, ValidationError
 from django.db import router, transaction
 from django.db.models import Q
+from django.forms import CharField
 from django.http import HttpResponseRedirect, HttpResponse, Http404, HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render, get_object_or_404
 from django.template.defaultfilters import escape
@@ -42,11 +43,14 @@ from cms.admin.permissionadmin import (PERMISSION_ADMIN_INLINES, PagePermissionI
 from cms.admin.placeholderadmin import PlaceholderAdminMixin
 from cms.admin.views import revert_plugins
 from cms.constants import PAGE_TYPES_ID, PUBLISHER_STATE_PENDING
+from cms.forms.widgets import PluginEditor
 from cms.models import Page, Title, CMSPlugin, PagePermission, GlobalPagePermission, StaticPlaceholder
 from cms.models.managers import PagePermissionsPermissionManager
 from cms.plugin_pool import plugin_pool
 from cms.toolbar_pool import toolbar_pool
-from cms.utils import helpers, permissions, get_language_from_request, admin as admin_utils, copy_plugins
+from cms.templatetags.cms_admin import admin_static_url
+from cms.utils import (helpers, permissions, get_language_from_request, admin as admin_utils, copy_plugins,
+                       cms_static_url, plugins, get_template_from_request)
 from cms.utils.i18n import get_language_list, get_language_tuple, get_language_object, force_language
 from cms.utils.admin import jsonify_request
 from cms.utils.compat.dj import is_installed
@@ -97,6 +101,25 @@ PUBLISH_COMMENT = "Publish"
 INITIAL_COMMENT = "Initial version."
 
 
+def contribute_fieldsets(cls):
+    additional_hidden_fields = []
+    template_fields = ['template']
+    hidden_fields = ['site', 'parent']
+    seo_fields = []
+
+    fieldsets = [
+        (_('Hidden'), {
+            'fields': hidden_fields + additional_hidden_fields,
+            'classes': ('hidden',),
+        }),
+    ]
+
+    setattr(cls, 'fieldsets', fieldsets)
+    setattr(cls, 'template_fields', template_fields)
+    setattr(cls, 'additional_hidden_fields', additional_hidden_fields)
+    setattr(cls, 'seo_fields', seo_fields)
+
+
 class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
     form = PageForm
     search_fields = ('=id', 'title_set__slug', 'title_set__title', 'reverse_id')
@@ -108,6 +131,23 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
     title_frontend_editable_fields = ['title', 'menu_title', 'page_title']
 
     inlines = PERMISSION_ADMIN_INLINES
+
+    class Media:
+        css = {
+            'all': [cms_static_url(path) for path in (
+                'cms_patch/css/rte.css',
+                'cms_patch/css/pages.css',
+                'cms_patch/css/change_form.css',
+                'cms_patch/css/jquery.dialog.css',
+            )]
+        }
+        js = ['%scms_patch/js/jquery.min.js' % admin_static_url()] + [cms_static_url(path) for path in [
+                'cms_patch/js/plugins/admincompat.js',
+                'cms_patch/js/libs/jquery.query.js',
+                'cms_patch/js/libs/jquery.ui.core.js',
+                'cms_patch/js/libs/jquery.ui.dialog.js',
+            ]
+        ]
 
     def get_urls(self):
         """Get the admin urls
@@ -254,12 +294,41 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
             obj.publish(language)
 
     def get_fieldsets(self, request, obj=None):
+        from copy import deepcopy
+        from cms.utils import placeholder as placeholder_utils
+        from django.template.defaultfilters import title
+        """
+        Add fieldsets of placeholders to the list of already existing
+        fieldsets.
+        """
         form = self.get_form(request, obj, fields=None)
         if getattr(form, 'fieldsets', None) is None:
             fields = list(form.base_fields) + list(self.get_readonly_fields(request, obj))
             return [(None, {'fields': fields})]
         else:
-            return form.fieldsets
+            # edit
+            if obj:
+                given_fieldsets = list(deepcopy(form.fieldsets))
+                if not obj.has_publish_permission(request):
+                    fields = list(given_fieldsets[0][1]['fields'][2])
+                    fields.remove('published')
+                    given_fieldsets[0][1]['fields'][2] = tuple(fields)
+                placeholders_template = get_template_from_request(request, obj)
+                for placeholder_name in self.get_fieldset_placeholders(placeholders_template):
+                    name = placeholder_utils.get_placeholder_conf(
+                        "name", placeholder_name, obj.template, placeholder_name)
+                    name = _(name)
+                    given_fieldsets += [(title(name), {'fields': [placeholder_name], 'classes':['plugin-holder']})]
+                advanced = given_fieldsets.pop(3)
+                if obj.has_advanced_settings_permission(request):
+                    given_fieldsets.append(advanced)
+            # new page
+            else:
+                given_fieldsets = deepcopy(self.add_fieldsets)
+            return given_fieldsets
+
+    def get_fieldset_placeholders(self, template):
+        return plugins.get_placeholders(template)
 
     def get_inline_classes(self, request, obj=None, **kwargs):
         if obj and 'permission' in request.path_info:
@@ -282,7 +351,11 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
         """
         language = get_language_from_request(request, obj)
         form_cls = self.get_form_class(request, obj)
+
+        import pdb; pdb.set_trace()
+
         form = super(PageAdmin, self).get_form(request, obj, form=form_cls, **kwargs)
+
         # get_form method operates by overriding initial fields value which
         # may persist across invocation. Code below deepcopies fields definition
         # to avoid leaks
@@ -325,6 +398,37 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
                     form.base_fields['overwrite_url'].initial = title_obj.path
                 else:
                     form.base_fields['overwrite_url'].initial = ''
+
+            selected_template = get_template_from_request(request, obj)
+            placeholders = self.get_fieldset_placeholders(selected_template)
+
+            if placeholders:
+                for placeholder_name in placeholders:
+                    plugin_list = []
+                    show_copy = False
+                    copy_languages = {}
+                    if not version_id:
+                        placeholder, created = obj.placeholders.get_or_create(slot=placeholder_name)
+                        installed_plugins = plugin_pool.get_all_plugins(placeholder_name, obj)
+                        plugin_list = CMSPlugin.objects.filter(language=language, placeholder=placeholder, parent=None).order_by('position')
+                        other_plugins = CMSPlugin.objects.filter(placeholder=placeholder, parent=None).exclude(language=language)
+                        dict_cms_languages = dict(settings.OLD_LANGUAGES)
+                        for plugin in other_plugins:
+                            if (not plugin.language in copy_languages) and (plugin.language in dict_cms_languages):
+                                copy_languages[plugin.language] = dict_cms_languages[plugin.language]
+
+                    language = get_language_from_request(request, obj)
+                    if copy_languages and len(settings.OLD_LANGUAGES) > 1:
+                        show_copy = True
+                    widget = PluginEditor(attrs={
+                        'installed': installed_plugins,
+                        'list': plugin_list,
+                        'copy_languages': copy_languages.items(),
+                        'show_copy': show_copy,
+                        'language': language,
+                        'placeholder': placeholder
+                        })
+                    form.base_fields[placeholder.slot] = CharField(widget=widget, required=False)
 
         else:
             for name in ('slug', 'title'):
@@ -427,8 +531,12 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
             # to determine whether a given object exists.
             obj = None
         else:
-            #activate(user_lang_set)
+            selected_template = get_template_from_request(request, obj)
+
+            placeholders_fields = self.get_fieldset_placeholders(selected_template)
+            # activate(user_lang_set)
             context = {
+                'placeholders': placeholders_fields,
                 'page': obj,
                 'CMS_PERMISSION': get_cms_setting('PERMISSION'),
                 'ADMIN_MEDIA_URL': settings.STATIC_URL,
@@ -1454,5 +1562,6 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
             return super(PageAdmin, self).clear_placeholder(*args, **kwargs)
 
 
+contribute_fieldsets(PageAdmin)
 
 admin.site.register(Page, PageAdmin)
