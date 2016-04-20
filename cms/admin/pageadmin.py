@@ -146,6 +146,10 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
                 'cms_patch/js/libs/jquery.query.js',
                 'cms_patch/js/libs/jquery.ui.core.js',
                 'cms_patch/js/libs/jquery.ui.dialog.js',
+                'cms_patch/js/libs/jquery.ui.sortable.js',
+                'cms_patch/js/plugin_editor.js',
+                'cms_patch/js/csrf.js',
+
             ]
         ]
 

@@ -10,7 +10,7 @@
 ;jQuery.ui || (function($) {
 
 var _remove = $.fn.remove,
-	isFF2 = $.browser.mozilla && (parseFloat($.browser.version) < 1.9);
+	isFF2 = true;
 
 //Helper functions and ui object
 $.ui = {
@@ -386,10 +386,10 @@ $.ui.mouse = {
 			});
 
 		// Prevent text selection in IE
-		if ($.browser.msie) {
-			this._mouseUnselectable = this.element.attr('unselectable');
-			this.element.attr('unselectable', 'on');
-		}
+		// if ($.browser.msie) {
+		// 	this._mouseUnselectable = this.element.attr('unselectable');
+		// 	this.element.attr('unselectable', 'on');
+		// }
 
 		this.started = false;
 	},

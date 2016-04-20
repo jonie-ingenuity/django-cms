@@ -1,9 +1,9 @@
 (function($) {
 	$(document).ready(function() {
 		var new_slug = true;
-		if($('#id_slug')[0].value){
-			new_slug = false;
-		}
+		// if($('#id_slug')[0].value){
+		// 	new_slug = false;
+		// }
 		
 		if(window.location.href.split("history").length == 1 && window.location.href.split("recover").length==1){
 			$.each(["template"], function(i, label){
