@@ -85,7 +85,7 @@ class PageForm(forms.ModelForm):
 
     class Meta:
         model = Page
-        fields = ["parent", "site", 'template', ]
+        fields = ["parent", "site", 'template']
 
     def __init__(self, *args, **kwargs):
         super(PageForm, self).__init__(*args, **kwargs)
@@ -213,9 +213,6 @@ class AdvancedSettingsForm(forms.ModelForm):
     application_configs = forms.ChoiceField(label=_('Application configurations'),
                                             choices=(), required=False,)
 
-    list_placeholder = forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple,
-                                             choices=[(0,3),(0,2)])
-
     fieldsets = (
         (None, {
             'fields': ('overwrite_url', 'redirect'),
@@ -225,9 +222,6 @@ class AdvancedSettingsForm(forms.ModelForm):
                        'application_urls', 'application_namespace', 'application_configs',
                        'xframe_options',)
         }),
-        (_('Plugin Edit'), {
-            'fields': ('list_placeholder',)
-            })
     )
 
     def __init__(self, *args, **kwargs):

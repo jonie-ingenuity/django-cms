@@ -141,7 +141,7 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
                 'cms_patch/css/jquery.dialog.css',
             )]
         }
-        js = ['%scms_patch/js/jquery.min.js' % admin_static_url()] + [cms_static_url(path) for path in [
+        js = ['%sjs/jquery.min.js' % admin_static_url()] + [cms_static_url(path) for path in [
                 'cms_patch/js/plugins/admincompat.js',
                 'cms_patch/js/libs/jquery.query.js',
                 'cms_patch/js/libs/jquery.ui.core.js',
@@ -349,12 +349,12 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
         Get PageForm for the Page model and modify its fields depending on
         the request.
         """
+        advanced_settings = False
         language = get_language_from_request(request, obj)
-        form_cls = self.get_form_class(request, obj)
+        form = self.get_form_class(request, obj)
 
-        import pdb; pdb.set_trace()
-
-        form = super(PageAdmin, self).get_form(request, obj, form=form_cls, **kwargs)
+        if form == AdvancedSettingsForm:
+            advanced_settings = True
 
         # get_form method operates by overriding initial fields value which
         # may persist across invocation. Code below deepcopies fields definition
@@ -399,36 +399,37 @@ class PageAdmin(PlaceholderAdminMixin, ModelAdmin):
                 else:
                     form.base_fields['overwrite_url'].initial = ''
 
-            selected_template = get_template_from_request(request, obj)
-            placeholders = self.get_fieldset_placeholders(selected_template)
+            if advanced_settings:
+                selected_template = get_template_from_request(request, obj)
+                placeholders = self.get_fieldset_placeholders(selected_template)
 
-            if placeholders:
-                for placeholder_name in placeholders:
-                    plugin_list = []
-                    show_copy = False
-                    copy_languages = {}
-                    if not version_id:
-                        placeholder, created = obj.placeholders.get_or_create(slot=placeholder_name)
-                        installed_plugins = plugin_pool.get_all_plugins(placeholder_name, obj)
-                        plugin_list = CMSPlugin.objects.filter(language=language, placeholder=placeholder, parent=None).order_by('position')
-                        other_plugins = CMSPlugin.objects.filter(placeholder=placeholder, parent=None).exclude(language=language)
-                        dict_cms_languages = dict(settings.OLD_LANGUAGES)
-                        for plugin in other_plugins:
-                            if (not plugin.language in copy_languages) and (plugin.language in dict_cms_languages):
-                                copy_languages[plugin.language] = dict_cms_languages[plugin.language]
+                if placeholders:
+                    for placeholder_name in placeholders:
+                        plugin_list = []
+                        show_copy = False
+                        copy_languages = {}
+                        if not version_id:
+                            placeholder, created = obj.placeholders.get_or_create(slot=placeholder_name)
+                            installed_plugins = plugin_pool.get_all_plugins(placeholder_name, obj)
+                            plugin_list = CMSPlugin.objects.filter(language=language, placeholder=placeholder, parent=None).order_by('position')
+                            other_plugins = CMSPlugin.objects.filter(placeholder=placeholder, parent=None).exclude(language=language)
+                            dict_cms_languages = dict(settings.OLD_LANGUAGES)
+                            for plugin in other_plugins:
+                                if (not plugin.language in copy_languages) and (plugin.language in dict_cms_languages):
+                                    copy_languages[plugin.language] = dict_cms_languages[plugin.language]
 
-                    language = get_language_from_request(request, obj)
-                    if copy_languages and len(settings.OLD_LANGUAGES) > 1:
-                        show_copy = True
-                    widget = PluginEditor(attrs={
-                        'installed': installed_plugins,
-                        'list': plugin_list,
-                        'copy_languages': copy_languages.items(),
-                        'show_copy': show_copy,
-                        'language': language,
-                        'placeholder': placeholder
-                        })
-                    form.base_fields[placeholder.slot] = CharField(widget=widget, required=False)
+                        language = get_language_from_request(request, obj)
+                        if copy_languages and len(settings.OLD_LANGUAGES) > 1:
+                            show_copy = True
+                        widget = PluginEditor(attrs={
+                            'installed': installed_plugins,
+                            'list': plugin_list,
+                            'copy_languages': copy_languages.items(),
+                            'show_copy': show_copy,
+                            'language': language,
+                            'placeholder': placeholder
+                            })
+                        form.base_fields[placeholder.slot] = CharField(widget=widget, required=False)
 
         else:
             for name in ('slug', 'title'):
